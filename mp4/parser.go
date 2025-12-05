@@ -8,19 +8,18 @@ import (
 	"time"
 )
 
-// MP4解析器
+// MP4Parser
 type MP4Parser struct {
-	file       *os.File
-	metadata   MP4Metadata
-	tracks     []TrackInfo
-	moovOffset int64
+	file     *os.File
+	metadata MP4Metadata
+	tracks   []TrackInfo
 }
 
-// 创建新的MP4解析器
+// Create new MP4 parser
 func NewParser(filename string) (*MP4Parser, error) {
 	file, err := os.Open(filename)
 	if err != nil {
-		return nil, fmt.Errorf("打开文件失败: %v", err)
+		return nil, fmt.Errorf("open file failed: %v", err)
 	}
 
 	return &MP4Parser{
@@ -30,7 +29,7 @@ func NewParser(filename string) (*MP4Parser, error) {
 	}, nil
 }
 
-// 解析MP4文件
+// Parser MP4 file
 func (p *MP4Parser) Parse() (*MP4Metadata, error) {
 	defer p.file.Close()
 
@@ -65,7 +64,7 @@ func readHeader(f *os.File) (uint32, string, error) {
 		return 0, "", err
 	}
 	if n != 8 {
-		return 0, "", fmt.Errorf("读取文件头失败")
+		return 0, "", fmt.Errorf("read atom header failed")
 	}
 	for i := 0; i < 8; i++ {
 		fmt.Printf("%02x ", buf[i])
@@ -123,7 +122,7 @@ func readU64(f *os.File) uint64 {
 	return binary.BigEndian.Uint64(buf)
 }
 
-// 解析mvhd atom
+// Parse mvhd atom
 // aligned(8) class MovieHeaderBox extends FullBox(‘mvhd’, version, 0) {
 //
 //	if (version==1) {
@@ -148,9 +147,9 @@ func readU64(f *os.File) uint64 {
 //		unsigned int(32) next_track_ID;
 //		}
 func (p *MP4Parser) parseMvhdAtom() error {
-	// 读取版本
+	// read version
 	version := readByte(p.file)
-	// 跳过flags
+	// skip flags
 	p.file.Seek(3, io.SeekCurrent)
 
 	var creationTime, modificationTime, duration uint64
@@ -169,13 +168,13 @@ func (p *MP4Parser) parseMvhdAtom() error {
 	fmt.Printf("DEBUG: mvhd, creationTime: %d, modificationTime: %d, timescale: %d, duration: %d\n",
 		creationTime, modificationTime, timescale, duration)
 
-	// 设置时间信息
+	// set timescale
 	if timescale > 0 {
 		durationSeconds := float64(duration) / float64(timescale)
 		p.metadata.Duration = time.Duration(durationSeconds * float64(time.Second))
 	}
 
-	// 转换Mac时间戳到Go时间（Mac时间从1904-01-01开始）
+	// 1904-01-01 00:00:00 +0000 UTC
 	macEpoch := time.Date(1904, 1, 1, 0, 0, 0, 0, time.UTC)
 	p.metadata.CreationTime = macEpoch.Add(time.Duration(creationTime) * time.Second)
 	p.metadata.ModificationTime = macEpoch.Add(time.Duration(modificationTime) * time.Second)
@@ -187,7 +186,7 @@ func (p *MP4Parser) parseMvhdAtom() error {
 	return nil
 }
 
-// 解析trak atom
+// parse trak atom
 func (p *MP4Parser) parseTrakAtom(size uint32) error {
 	fmt.Printf("DEBUG: parsing trak atom\n")
 	end := cur(p.file) + int64(size)
@@ -215,13 +214,12 @@ func (p *MP4Parser) parseTrakAtom(size uint32) error {
 		}
 	}
 
-	// 添加到轨道列表
 	p.tracks = append(p.tracks, trackInfo)
 
 	return nil
 }
 
-// 解析tkhd atom
+// parse tkhd atom
 //
 //	aligned(8) class TrackHeaderBox extends FullBox(‘tkhd’, version, flags) {
 //	    if (version==1) {
@@ -250,7 +248,7 @@ func (p *MP4Parser) parseTkhdAtom(track *TrackInfo) error {
 	fmt.Printf("DEBUG: parsing tkhd atom\n")
 
 	version := readByte(p.file)
-	// 跳过flags
+	// skip flags
 	p.file.Seek(3, io.SeekCurrent)
 
 	var trackID uint32
@@ -288,7 +286,7 @@ func (p *MP4Parser) parseTkhdAtom(track *TrackInfo) error {
 	return nil
 }
 
-// 解析mdia atom
+// skip mdia atom
 func (p *MP4Parser) parseMdiaAtom(size uint32, track *TrackInfo) error {
 	fmt.Printf("parsing mdia atom\n")
 	end := cur(p.file) + int64(size)
@@ -323,7 +321,7 @@ func (p *MP4Parser) parseMdiaAtom(size uint32, track *TrackInfo) error {
 	return nil
 }
 
-// 解析mdhd atom
+// parse mdhd atom
 func (p *MP4Parser) parseMdhdAtom(track *TrackInfo) error {
 	version := readByte(p.file)
 	p.file.Seek(3, io.SeekCurrent)
@@ -362,7 +360,7 @@ func readBytes(f *os.File, n int) []byte {
 	return buf
 }
 
-// 解析hdlr atom
+// parse hdlr atom
 func (p *MP4Parser) parseHdlrAtom(track *TrackInfo, dataSize uint32) error {
 	// skip version and flags
 	// skip pre_defined
@@ -370,7 +368,7 @@ func (p *MP4Parser) parseHdlrAtom(track *TrackInfo, dataSize uint32) error {
 	handler := string(readBytes(p.file, 4))
 	track.HandlerType = handler
 
-	// 更新metadata中的轨道类型
+	// update metadata track type
 	switch handler {
 	case "vide":
 		p.metadata.HasVideo = true
@@ -415,7 +413,7 @@ func (p *MP4Parser) parseMinfAtom(size uint32, track *TrackInfo) error {
 	return nil
 }
 
-// 解析stbl atom
+// parse stbl atom
 func (p *MP4Parser) parseStblAtom(size uint32, track *TrackInfo) error {
 	end := cur(p.file) + int64(size)
 	for cur(p.file) < end {
@@ -446,7 +444,7 @@ func (p *MP4Parser) parseStblAtom(size uint32, track *TrackInfo) error {
 	return nil
 }
 
-// 计算元数据
+// calculate metadata
 func (p *MP4Parser) calculateMetadata() error {
 	for _, track := range p.tracks {
 		switch track.HandlerType {
@@ -456,7 +454,7 @@ func (p *MP4Parser) calculateMetadata() error {
 			p.metadata.Height = track.Height
 			p.metadata.VideoCodec = track.Codec
 
-			// 计算帧率
+			// calculate fps
 			if track.Timescale > 0 && track.FrameCount > 0 {
 				durationSeconds := float64(track.Duration) / float64(track.Timescale)
 				if durationSeconds > 0 {
@@ -481,7 +479,7 @@ func (p *MP4Parser) calculateMetadata() error {
 	return nil
 }
 
-// 获取详细的轨道信息
+// get tracks
 func (p *MP4Parser) GetTracks() []TrackInfo {
 	return p.tracks
 }
